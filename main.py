@@ -1,12 +1,8 @@
-import configparser
-import aiogram
+import asyncio
 
-
-config = configparser.ConfigParser()
-configPath = "config.ini"
-config.read(configPath)
-
-botToken = config.get('default', 'botToken')
+from handlers import (
+    start_bot
+)
 
 if __name__ == '__main__':
-    print()
+    asyncio.run(start_bot())
