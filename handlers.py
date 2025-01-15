@@ -38,19 +38,24 @@ async def faq(message: types.Message):
     await message.answer('....')
 
 
-@dispatcher.message(Command('test'))
+@dispatcher.message(Command('test'))        #проверка знаний
 async def start(message: types.Message):
-    await message.answer(':)')
+    await message.answer('проверка знаний')
 
 
-@dispatcher.message(Command('career_guidance'))
+@dispatcher.message(Command('career_guidance'))       #тест на проф ориентацию
 async def career_guidance(message: types.Message):
-    await message.answer('hola')
+    await message.answer('тест на проф ориентацию')
 
 
-@dispatcher.message(Command('profile'))
+@dispatcher.message(Command('profile'))           #управление профилем
 async def profile(message: types.Message):
-    await message.answer('20cm')
+    await message.answer('профиль')
+
+
+@dispatcher.message(Command('exam'))           #подготовка к экзамену
+async def profile(message: types.Message):
+    await message.answer('подготовка к экзамену')
 
 
 async def start_bot():
