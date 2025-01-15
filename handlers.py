@@ -61,14 +61,12 @@ conn.commit()
 # Хранилище для временных данных регистрации
 registration_data = {}
 
+
 # Команда /start
 @dispatcher.message(Command('start'))
 async def start(message: types.Message):
-    await message.answer("Привет! Для использования всех функций бота зарегистрируйтесь с помощью команды /register.")
+    # await message.answer("Привет! Для использования всех функций бота зарегистрируйтесь с помощью команды /register.")
 
-# Команда /register (регистрация пользователя)
-@dispatcher.message(Command('register'))
-async def register(message: types.Message):
     telegram_id = message.from_user.id
 
     # Проверяем, зарегистрирован ли пользователь
@@ -76,11 +74,13 @@ async def register(message: types.Message):
     user = cursor.fetchone()
 
     if user:
-        await message.answer(f"Вы уже зарегистрированы!\nВаш профиль:\nИмя: {user[2]}\nВозраст: {user[3]}\nEmail: {user[4]}")
+        await message.answer(
+            f"Вы уже зарегистрированы!\nВаш профиль:\nИмя: {user[2]}\nВозраст: {user[3]}\nEmail: {user[4]}")
     else:
         registration_data[telegram_id] = {}
         registration_data[telegram_id]['step'] = 'name'
         await message.answer("Введите ваше имя:")
+
 
 # Обработка данных регистрации
 @dispatcher.message(lambda message: message.from_user.id in registration_data)
@@ -132,14 +132,8 @@ async def help_command(message: types.Message):
         "<b>/profile</b> - Посмотреть статистику выполненых тестов и прогресс их выполнения\n"
     )
 
-    telegram_id = message.from_user.id
-    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
-    user = cursor.fetchone()
+    await message.answer(text, parse_mode='HTML')
 
-    if user:
-        await message.answer(text, parse_mode='HTML')
-    else:
-        await message.answer("Вы не зарегистрированы. Используйте команду /register для регистрации.")
 
 # Команда /profile (отображение профиля пользователя)
 @dispatcher.message(Command('profile'))
@@ -204,7 +198,8 @@ async def exam(message: types.Message):
 
 # Запуск бота
 async def start_bot():
-    dispatcher.update.middleware.register(SomeMiddleware())
+    dispatcher.message.outer_middleware(SomeMiddleware())
+    # dispatcher.update.middleware.register(SomeMiddleware())
     await dispatcher.start_polling(bot)
 
 if __name__ == "__main__":
