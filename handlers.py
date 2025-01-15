@@ -1,9 +1,13 @@
 import asyncio
 import logging
 import sqlite3
+from typing import Callable, Awaitable, Any, Dict
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters.command import Command
+from aiogram.types import TelegramObject
+from aiogram.dispatcher.middlewares.base import BaseMiddleware
 import configparser
+import aiosqlite
 
 # Читаем токен из файла конфигурации
 config = configparser.ConfigParser()
@@ -15,6 +19,28 @@ botToken = config.get('default', 'botToken')
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=botToken)
 dispatcher = Dispatcher()
+
+# Middleware для проверки регистрации пользователя
+class SomeMiddleware(BaseMiddleware):
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: Dict[str, Any]
+    ) -> Any:
+        if isinstance(event, types.Message):  # Убедитесь, что это сообщение
+            if event.text != '/start':  # Проверка на текст сообщения
+                user_id = event.chat.id
+                async with aiosqlite.connect('users.db') as db:
+                    async with db.execute("SELECT telegram_id FROM users WHERE telegram_id = ?", (user_id,)) as cursor:
+                        if await cursor.fetchone() is None:
+                            await bot.send_message(
+                                chat_id=user_id,
+                                text='Вы не зарегистрированы! Зарегистрируйтесь, используя команду /start.'
+                            )
+                            return
+        result = await handler(event, data)
+        return result
 
 # Подключение к SQLite базе данных
 conn = sqlite3.connect("users.db")
@@ -95,7 +121,8 @@ async def process_registration(message: types.Message):
 
 # Команда /help
 @dispatcher.message(Command('help'))
-async def help(message: types.Message):
+async def help_command(message: types.Message):
+
     text = (
         "Hиже представлены все доступные команды:\n\n"
         "<b>/start</b> - Начать работа бота \n"
@@ -104,7 +131,15 @@ async def help(message: types.Message):
         "<b>/career_guidance</b> - Начать тест на профориентацию\n"
         "<b>/profile</b> - Посмотреть статистику выполненых тестов и прогресс их выполнения\n"
     )
-    await message.answer(text, parse_mode='HTML')
+
+    telegram_id = message.from_user.id
+    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
+    user = cursor.fetchone()
+
+    if user:
+        await message.answer(text, parse_mode='HTML')
+    else:
+        await message.answer("Вы не зарегистрированы. Используйте команду /register для регистрации.")
 
 # Команда /profile (отображение профиля пользователя)
 @dispatcher.message(Command('profile'))
@@ -121,22 +156,55 @@ async def profile(message: types.Message):
 # Прочие команды
 @dispatcher.message(Command('faq'))
 async def faq(message: types.Message):
-    await message.answer('FAQ: Здесь будут часто задаваемые вопросы.')
+
+    telegram_id = message.from_user.id
+    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
+    user = cursor.fetchone()
+
+    if user:
+        await message.answer('FAQ: Здесь будут часто задаваемые вопросы.')
+    else:
+        await message.answer("Вы не зарегистрированы. Используйте команду /register для регистрации.")
 
 @dispatcher.message(Command('test'))
 async def test(message: types.Message):
-    await message.answer('Проверка знаний.')
+
+    telegram_id = message.from_user.id
+    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
+    user = cursor.fetchone()
+
+    if user:
+        await message.answer('Проверка знаний.')
+    else:
+        await message.answer("Вы не зарегистрированы. Используйте команду /register для регистрации.")
 
 @dispatcher.message(Command('career_guidance'))
 async def career_guidance(message: types.Message):
-    await message.answer('Тест на профориентацию.')
+
+    telegram_id = message.from_user.id
+    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
+    user = cursor.fetchone()
+
+    if user:
+        await message.answer('Тест на профориентацию.')
+    else:
+        await message.answer("Вы не зарегистрированы. Используйте команду /register для регистрации.")
 
 @dispatcher.message(Command('exam'))
 async def exam(message: types.Message):
-    await message.answer('Подготовка к экзамену.')
+
+    telegram_id = message.from_user.id
+    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
+    user = cursor.fetchone()
+
+    if user:
+        await message.answer('Подготовка к экзамену.')
+    else:
+        await message.answer("Вы не зарегистрированы. Используйте команду /register для регистрации.")
 
 # Запуск бота
 async def start_bot():
+    dispatcher.update.middleware.register(SomeMiddleware())
     await dispatcher.start_polling(bot)
 
 if __name__ == "__main__":

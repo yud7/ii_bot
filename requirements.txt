@@ -1,2 +1,4 @@
-aiogram
-configparser
+aiogram~=3.17.0
+configparser~=7.1.0
+aiosqlite~=0.20.0
+requests~=2.32.3
