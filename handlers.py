@@ -51,9 +51,7 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     telegram_id INTEGER UNIQUE,
-    name TEXT,
-    age INTEGER,
-    email TEXT
+    notification TEXT
 )
 """)
 conn.commit()
@@ -65,59 +63,19 @@ registration_data = {}
 # Команда /start
 @dispatcher.message(Command('start'))
 async def start(message: types.Message):
-    # await message.answer("Привет! Для использования всех функций бота зарегистрируйтесь с помощью команды /register.")
 
-    telegram_id = message.from_user.id
-
-    # Проверяем, зарегистрирован ли пользователь
-    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
-    user = cursor.fetchone()
-
-    if user:
-        await message.answer(
-            f"Вы уже зарегистрированы!\nВаш профиль:\nИмя: {user[2]}\nВозраст: {user[3]}\nEmail: {user[4]}")
-    else:
-        registration_data[telegram_id] = {}
-        registration_data[telegram_id]['step'] = 'name'
-        await message.answer("Введите ваше имя:")
+    async with aiosqlite.connect('users.db') as db:
+        async with db.execute("SELECT id FROM users WHERE id = ?", (message.from_user.id,)) as cursor:
+            if await cursor.fetchone() is None:
+                await cursor.execute('INSERT INTO users (telegram_id, notification) VALUES (?, ?)', (message.from_user.id, False))
+                await db.commit()
+                await message.answer(
+                    f'{message.from_user.last_name} {message.from_user.first_name}! Вы зарегистрированы!')
+            else:
+                await message.answer(
+                    f'Привет {message.from_user.last_name} {message.from_user.first_name}! Вы уже зарегистрированы!')
 
 
-# Обработка данных регистрации
-@dispatcher.message(lambda message: message.from_user.id in registration_data)
-async def process_registration(message: types.Message):
-    telegram_id = message.from_user.id
-    step = registration_data[telegram_id]['step']
-
-    if step == 'name':
-        registration_data[telegram_id]['name'] = message.text
-        registration_data[telegram_id]['step'] = 'age'
-        await message.answer("Введите ваш возраст:")
-    elif step == 'age':
-        if not message.text.isdigit():
-            await message.answer("Возраст должен быть числом. Попробуйте снова:")
-            return
-        registration_data[telegram_id]['age'] = int(message.text)
-        registration_data[telegram_id]['step'] = 'email'
-        await message.answer("Введите ваш email:")
-    elif step == 'email':
-        registration_data[telegram_id]['email'] = message.text
-
-        # Сохраняем данные в базу данных
-        try:
-            cursor.execute(
-                "INSERT INTO users (telegram_id, name, age, email) VALUES (?, ?, ?, ?)",
-                (telegram_id,
-                 registration_data[telegram_id]['name'],
-                 registration_data[telegram_id]['age'],
-                 registration_data[telegram_id]['email'])
-            )
-            conn.commit()
-
-            await message.answer("Регистрация завершена! Теперь вы можете использовать все функции бота.")
-        except sqlite3.IntegrityError:
-            await message.answer("Вы уже зарегистрированы.")
-        finally:
-            del registration_data[telegram_id]
 
 # Команда /help
 @dispatcher.message(Command('help'))
@@ -138,63 +96,29 @@ async def help_command(message: types.Message):
 # Команда /profile (отображение профиля пользователя)
 @dispatcher.message(Command('profile'))
 async def profile(message: types.Message):
-    telegram_id = message.from_user.id
-    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
-    user = cursor.fetchone()
+    await message.answer(f"Ваш профиль:{message.from_user.last_name} {message.from_user.first_name}")
 
-    if user:
-        await message.answer(f"Ваш профиль:\nИмя: {user[2]}\nВозраст: {user[3]}\nEmail: {user[4]}")
-    else:
-        await message.answer("Вы не зарегистрированы. Используйте команду /register для регистрации.")
 
 # Прочие команды
 @dispatcher.message(Command('faq'))
 async def faq(message: types.Message):
+    await message.answer('FAQ: Здесь будут часто задаваемые вопросы.')
 
-    telegram_id = message.from_user.id
-    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
-    user = cursor.fetchone()
-
-    if user:
-        await message.answer('FAQ: Здесь будут часто задаваемые вопросы.')
-    else:
-        await message.answer("Вы не зарегистрированы. Используйте команду /register для регистрации.")
 
 @dispatcher.message(Command('test'))
 async def test(message: types.Message):
+    await message.answer('Проверка знаний.')
 
-    telegram_id = message.from_user.id
-    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
-    user = cursor.fetchone()
-
-    if user:
-        await message.answer('Проверка знаний.')
-    else:
-        await message.answer("Вы не зарегистрированы. Используйте команду /register для регистрации.")
 
 @dispatcher.message(Command('career_guidance'))
 async def career_guidance(message: types.Message):
+    await message.answer('Тест на профориентацию.')
 
-    telegram_id = message.from_user.id
-    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
-    user = cursor.fetchone()
-
-    if user:
-        await message.answer('Тест на профориентацию.')
-    else:
-        await message.answer("Вы не зарегистрированы. Используйте команду /register для регистрации.")
 
 @dispatcher.message(Command('exam'))
 async def exam(message: types.Message):
+    await message.answer('Подготовка к экзамену.')
 
-    telegram_id = message.from_user.id
-    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
-    user = cursor.fetchone()
-
-    if user:
-        await message.answer('Подготовка к экзамену.')
-    else:
-        await message.answer("Вы не зарегистрированы. Используйте команду /register для регистрации.")
 
 # Запуск бота
 async def start_bot():
