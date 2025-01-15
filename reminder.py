@@ -1,5 +1,3 @@
-# reminder.py
-
 import asyncio
 import logging
 import configparser
@@ -14,6 +12,7 @@ config = configparser.ConfigParser()
 config.read("config.ini")
 bot_token = config.get('default', 'botToken')
 bot = Bot(token=bot_token)
+
 
 async def check_inactive_users():
     """
@@ -50,10 +49,8 @@ async def check_inactive_users():
     except Exception as e:
         logging.error(f"Ошибка в check_inactive_users: {e}")
 
+
 async def main():
-    """
-    Здесь создаём планировщик и запускаем его внутри запущенного event loop.
-    """
     scheduler = AsyncIOScheduler()
     # Каждую минуту запускаем функцию проверки
     scheduler.add_job(check_inactive_users, "interval", minutes=1)
@@ -67,5 +64,4 @@ async def main():
         await asyncio.sleep(3600)
 
 if __name__ == "__main__":
-    # Запускаем всё в асинхронном режиме
     asyncio.run(main())

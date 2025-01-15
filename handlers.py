@@ -1,113 +1,105 @@
-# handlers.py
-import asyncio
 import logging
-import sqlite3
-from typing import Callable, Awaitable, Any, Dict
-from datetime import datetime
+import configparser
 
+from typing import Callable, Awaitable, Any, Dict
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters.command import Command
 from aiogram.types import TelegramObject
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
-import configparser
-import aiosqlite
 
-# -----------------------------------------------------------------------------
-# Читаем токен из файла конфигурации
-# -----------------------------------------------------------------------------
+from database_modification import initialize_db, get_user_by_id, insert_user, update_last_activity  # Import database functions
+
 config = configparser.ConfigParser()
 configPath = "config.ini"
 config.read(configPath)
 botToken = config.get('default', 'botToken')
 
-# -----------------------------------------------------------------------------
-# Настраиваем логирование и создаём бота
-# -----------------------------------------------------------------------------
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=botToken)
 dispatcher = Dispatcher()
 
-# -----------------------------------------------------------------------------
-# Middleware для проверки регистрации пользователя
-# -----------------------------------------------------------------------------
+
 class SomeMiddleware(BaseMiddleware):
+    registration_check = -1
+
     async def __call__(
         self,
         handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
         event: TelegramObject,
         data: Dict[str, Any]
     ) -> Any:
-        # Проверяем, является ли событие сообщением
         if isinstance(event, types.Message):
-            # Если это не команда /start, проверяем регистрацию
-            if event.text != '/start':
-                user_id = event.from_user.id
-                async with aiosqlite.connect('users.db') as db:
-                    async with db.execute(
-                        "SELECT telegram_id FROM users WHERE telegram_id = ?",
-                        (user_id,)
-                    ) as cursor:
-                        row = await cursor.fetchone()
-                        if row is None:
-                            await bot.send_message(
-                                chat_id=user_id,
-                                text='Вы не зарегистрированы! Зарегистрируйтесь, используя команду /start.'
-                            )
-                            return
+            user_id = event.from_user.id
+            if event.text == '/start':
+                if self.registration_check == -1:
+                    await bot.send_message(chat_id=user_id, text="Введите ваше имя:")
+                    self.registration_check = 0
+                elif self.registration_check == 1:
+                    user_data = await get_user_by_id(user_id)
+                    if user_data:
+                        first_name, last_name = user_data[2], user_data[3]
+                        await bot.send_message(
+                            chat_id=user_id,
+                            text=f"{first_name} {last_name}, вы уже зарегистрированы!"
+                        )
+                return
+
+            if self.registration_check == 0:
+                if not hasattr(self, "registration_step"):
+                    self.registration_step = 1
+
+                if self.registration_step == 1:
+                    self.first_name = event.text
+                    await bot.send_message(chat_id=user_id, text="Введите вашу фамилию:")
+                    self.registration_step += 1
+                elif self.registration_step == 2:
+                    self.last_name = event.text
+                    await bot.send_message(chat_id=user_id, text="Введите ваш возраст:")
+                    self.registration_step += 1
+                elif self.registration_step == 3:
+                    try:
+                        age = int(event.text)
+                        if 1 <= age <= 120:
+                            await insert_user(user_id, self.first_name, self.last_name, age)
+                            await bot.send_message(chat_id=user_id, text="Регистрация завершена!")
+                            self.registration_check = 1
+                            self.registration_step = None
+                        else:
+                            await bot.send_message(chat_id=user_id, text="Пожалуйста, введите возраст от 1 до 120.")
+                    except ValueError:
+                        await bot.send_message(chat_id=user_id, text="Введите корректный возраст.")
+                return
+
+            if self.registration_check == -1:
+                await bot.send_message(
+                    chat_id=user_id,
+                    text="Вы не зарегистрированы! Пожалуйста, используйте команду /start для регистрации."
+                )
+                return
+
         return await handler(event, data)
 
-# -----------------------------------------------------------------------------
-# Подключение к БД, создаём таблицу (если не существует)
-# -----------------------------------------------------------------------------
-conn = sqlite3.connect("users.db")
-cursor = conn.cursor()
-
-# Добавляем колонку last_activity, если её нет, чтобы хранить дату/время
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    telegram_id INTEGER UNIQUE,
-    notification TEXT,
-    last_activity DATETIME
-)
-""")
-conn.commit()
-
-# -----------------------------------------------------------------------------
-# Хэндлеры команд
-# -----------------------------------------------------------------------------
 
 @dispatcher.message(Command("start"))
 async def start_command(message: types.Message):
-    """
-    Регистрирует пользователя, если он ещё не в базе,
-    и устанавливает время последней активности.
-    """
     user_id = message.from_user.id
-    async with aiosqlite.connect('users.db') as db:
-        # Проверяем, есть ли уже запись
-        async with db.execute("""
-            SELECT id FROM users WHERE telegram_id = ?
-        """, (user_id,)) as cursor:
-            row = await cursor.fetchone()
+    user_data = await get_user_by_id(user_id)
 
-        if row is None:
-            # Создаём новую запись с текущим временем
-            now_str = datetime.now().isoformat()
-            await db.execute("""
-                INSERT INTO users (telegram_id, notification, last_activity)
-                VALUES (?, ?, ?)
-            """, (user_id, 'False', now_str))
-            await db.commit()
+    if user_data is None:
+        await message.answer(
+            f'{message.from_user.last_name} {message.from_user.first_name}, вы зарегистрированы!'
+        )
+    else:
+        await message.answer(
+            f'Привет, {message.from_user.last_name} {message.from_user.first_name}! Вы уже зарегистрированы!'
+        )
 
-            await message.answer(
-                f'{message.from_user.last_name} {message.from_user.first_name}, вы зарегистрированы!'
-            )
-        else:
-            await message.answer(
-                f'Привет, {message.from_user.last_name} {message.from_user.first_name}! '
-                f'Вы уже зарегистрированы!'
-            )
+
+@dispatcher.message()
+async def any_message_handler(message: types.Message):
+    user_id = message.from_user.id
+    await update_last_activity(user_id)
+    await message.answer("Сообщение получено, активность обновлена.")
 
 
 @dispatcher.message(Command("help"))
@@ -151,32 +143,7 @@ async def exam_command(message: types.Message):
     await message.answer('Подготовка к экзамену.')
 
 
-# -----------------------------------------------------------------------------
-# Хэндлер на любое сообщение: обновляем last_activity
-# -----------------------------------------------------------------------------
-@dispatcher.message()
-async def any_message_handler(message: types.Message):
-    """
-    Любое сообщение от пользователя обновляет время последней активности.
-    """
-    user_id = message.from_user.id
-    now_str = datetime.now().isoformat()
-
-    async with aiosqlite.connect('users.db') as db:
-        await db.execute("""
-            UPDATE users
-            SET last_activity = ?
-            WHERE telegram_id = ?
-        """, (now_str, user_id))
-        await db.commit()
-
-    # Можно отреагировать по-своему, либо не отвечать
-    await message.answer("Сообщение получено, активность обновлена.")
-
-# -----------------------------------------------------------------------------
-# Функция старта бота
-# -----------------------------------------------------------------------------
 async def start_bot():
-    # Регистрируем middleware
+    await initialize_db()
     dispatcher.message.outer_middleware(SomeMiddleware())
     await dispatcher.start_polling(bot)
