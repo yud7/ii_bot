@@ -4,11 +4,11 @@ from datetime import datetime
 
 async def initialize_db():
     """
-    Creates (or updates) the users table if it doesn't exist or missing columns.
+    Создаёт (или обновляет) таблицу users, если она ещё не существует.
+    Добавляет поля last_5min_reminder, last_24h_reminder и notification при необходимости.
     """
     async with aiosqlite.connect("users.db") as db:
         # Создаём таблицу, если её нет.
-        # Добавляем поля last_5min_reminder и last_24h_reminder сразу в CREATE TABLE.
         await db.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -16,7 +16,7 @@ async def initialize_db():
                 first_name TEXT,
                 last_name TEXT,
                 age INTEGER,
-                notification TEXT,
+                notification TEXT,          -- Поле для включения/выключения уведомлений
                 last_activity DATETIME,
                 last_5min_reminder DATETIME,
                 last_24h_reminder DATETIME
@@ -24,23 +24,29 @@ async def initialize_db():
         """)
         await db.commit()
 
-        # Если таблица уже существовала без новых полей, добавляем их через ALTER TABLE (перехватываем ошибку).
+        # Если таблица уже существует, но без нужных полей, добавляем их:
         try:
             await db.execute("ALTER TABLE users ADD COLUMN last_5min_reminder DATETIME")
         except sqlite3.OperationalError:
-            pass  # колонка уже существует, игнорируем
+            pass
 
         try:
             await db.execute("ALTER TABLE users ADD COLUMN last_24h_reminder DATETIME")
         except sqlite3.OperationalError:
-            pass  # колонка уже существует, игнорируем
+            pass
+
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN notification TEXT")
+        except sqlite3.OperationalError:
+            pass
 
         await db.commit()
 
 
 async def get_user_by_id(telegram_id: int):
     """
-    Fetches a user by Telegram ID.
+    Возвращает всю строку (кортеж) с данными о пользователе по Telegram ID.
+    Или None, если пользователь не найден.
     """
     async with aiosqlite.connect("users.db") as db:
         async with db.execute("""
@@ -51,11 +57,10 @@ async def get_user_by_id(telegram_id: int):
 
 async def insert_user(telegram_id: int, first_name: str, last_name: str, age: int):
     """
-    Inserts a new user into the database.
+    Добавляет нового пользователя в базу.
+    По умолчанию ставим notification = 'True', чтобы сразу получать уведомления.
     """
     async with aiosqlite.connect("users.db") as db:
-        # При вставке ставим last_5min_reminder и last_24h_reminder = NULL,
-        # чтобы при первой проверке reminder.py понимал, что ещё не отправляли уведомления.
         await db.execute("""
             INSERT INTO users (
                 telegram_id, first_name, last_name, age,
@@ -68,7 +73,7 @@ async def insert_user(telegram_id: int, first_name: str, last_name: str, age: in
             first_name,
             last_name,
             age,
-            'False',
+            'True',                      # <-- По умолчанию True
             datetime.now().isoformat(),
             None,
             None
@@ -78,7 +83,7 @@ async def insert_user(telegram_id: int, first_name: str, last_name: str, age: in
 
 async def update_last_activity(telegram_id: int):
     """
-    Updates the last activity timestamp for a user.
+    Обновляет поле last_activity пользователя (время последнего действия).
     """
     async with aiosqlite.connect("users.db") as db:
         await db.execute("""
@@ -86,4 +91,18 @@ async def update_last_activity(telegram_id: int):
             SET last_activity = ?
             WHERE telegram_id = ?
         """, (datetime.now().isoformat(), telegram_id))
+        await db.commit()
+
+
+async def set_notifications_enabled(telegram_id: int, enabled: bool):
+    """
+    Включает или выключает уведомления пользователю с заданным telegram_id.
+    notification='True' или 'False'.
+    """
+    async with aiosqlite.connect("users.db") as db:
+        await db.execute("""
+            UPDATE users
+            SET notification = ?
+            WHERE telegram_id = ?
+        """, ('True' if enabled else 'False', telegram_id))
         await db.commit()

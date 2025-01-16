@@ -1,4 +1,3 @@
-# reminder.py
 import asyncio
 import configparser
 import logging
@@ -11,24 +10,28 @@ logging.basicConfig(level=logging.INFO)
 
 async def send_reminders():
     """
-    Периодически проверяет, когда пользователи были активны,
+    Периодически (раз в 60 секунд) проверяет, когда пользователи были активны,
     и отправляет им напоминания:
       - Через 1 минуту после последней активности
       - Через 24 часа после последней активности
+
+    Отправка происходит только при условии notification = 'True'.
     """
-    # Загружаем токен бота из config.ini
     config = configparser.ConfigParser()
     config.read("config.ini")
     bot_token = config.get("default", "botToken")
 
     bot = Bot(token=bot_token)
     print("reminder started")
+
     while True:
         try:
             async with aiosqlite.connect("users.db") as db:
-                # Получаем пользователей и их метки активности/уведомлений
+                # Достаём необходимые поля, включая notification
                 cursor = await db.execute("""
-                    SELECT telegram_id, last_activity, last_5min_reminder, last_24h_reminder
+                    SELECT telegram_id, last_activity,
+                           last_5min_reminder, last_24h_reminder,
+                           notification
                     FROM users
                 """)
                 rows = await cursor.fetchall()
@@ -36,8 +39,13 @@ async def send_reminders():
                 for row in rows:
                     telegram_id = row[0]
                     last_activity_str = row[1]
-                    last_5min_str = row[2]   # Используем ту же колонку, что была "5 минут"
+                    last_5min_str = row[2]
                     last_24h_str = row[3]
+                    notification_str = row[4]  # 'True' или 'False'
+
+                    # Если пользователь отключил уведомления, пропускаем
+                    if notification_str == 'False':
+                        continue
 
                     # Если нет данных о последней активности, пропускаем
                     if not last_activity_str:
@@ -47,17 +55,15 @@ async def send_reminders():
                     last_activity = datetime.fromisoformat(last_activity_str)
 
                     # --- Напоминание через 1 минуту ---
-                    # Если прошло >= 1 минуты с момента последней активности
-                    # и ещё не отправляли уведомление после этой самой активности:
                     if (now - last_activity) >= timedelta(minutes=1):
                         send_1min = False
 
                         if not last_5min_str:
-                            # Никогда не отправляли уведомление «через 1 мин»
+                            # Никогда не отправляли 1-минутное уведомление
                             send_1min = True
                         else:
                             last_5min_reminder = datetime.fromisoformat(last_5min_str)
-                            # Проверяем, что предыдущее уведомление было ДО новой активности
+                            # Если последнее 1-минутное уведомление было до новой активности
                             if last_5min_reminder < last_activity:
                                 send_1min = True
 
@@ -67,7 +73,7 @@ async def send_reminders():
                                     chat_id=telegram_id,
                                     text="Прошла 1 минута с вашей последней активности. Напоминаем о тесте!"
                                 )
-                                # Ставим время отправки этого уведомления
+                                # Обновляем метку, чтобы не слать повторно
                                 await db.execute("""
                                     UPDATE users
                                     SET last_5min_reminder = ?
@@ -82,7 +88,6 @@ async def send_reminders():
                         send_24h = False
 
                         if not last_24h_str:
-                            # Никогда не отправляли уведомление «через 24 ч»
                             send_24h = True
                         else:
                             last_24h_reminder = datetime.fromisoformat(last_24h_str)
@@ -95,7 +100,6 @@ async def send_reminders():
                                     chat_id=telegram_id,
                                     text="Прошли сутки с вашей последней активности. Напоминаем о тесте!"
                                 )
-                                # Ставим время отправки этого уведомления
                                 await db.execute("""
                                     UPDATE users
                                     SET last_24h_reminder = ?
@@ -108,13 +112,11 @@ async def send_reminders():
         except Exception as e:
             logging.error(f"Ошибка в цикле отправки напоминаний: {e}")
 
-        # Ждем 60 секунд до следующей проверки
+        # Ждём 60 секунд до следующей проверки
         await asyncio.sleep(60)
-
 
 async def main():
     await send_reminders()
-
 
 if __name__ == "__main__":
     asyncio.run(main())
