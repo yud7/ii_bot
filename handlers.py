@@ -30,9 +30,13 @@ class SomeMiddleware(BaseMiddleware):
     ) -> Any:
         if isinstance(event, types.Message):
             user_id = event.from_user.id
-
             user_data = await get_user_by_id(user_id)
 
+            # Если уже есть запись о пользователе, обновляем last_activity
+            if user_data:
+                await update_last_activity(user_id)
+
+            # Ниже — логика /start и регистрации
             if not hasattr(self, "registration_step"):
                 self.registration_step = None
 
@@ -45,13 +49,12 @@ class SomeMiddleware(BaseMiddleware):
                         text=f"{first_name} {last_name}, вы уже зарегистрированы!"
                     )
                 else:
-
                     self.registration_step = 1
                     await bot.send_message(chat_id=user_id, text="Введите ваше имя:")
                 return
 
             if self.registration_step:
-                # Handle the registration steps
+                # Registration steps...
                 if self.registration_step == 1:
                     self.first_name = event.text
                     await bot.send_message(chat_id=user_id, text="Введите вашу фамилию:")
@@ -65,6 +68,9 @@ class SomeMiddleware(BaseMiddleware):
                         age = int(event.text)
                         if 1 <= age <= 120:
                             await insert_user(user_id, self.first_name, self.last_name, age)
+                            # Новичок только что зарегистрировался — обновим last_activity
+                            await update_last_activity(user_id)
+
                             await bot.send_message(chat_id=user_id, text="Регистрация завершена!")
                             self.registration_step = None
                         else:
@@ -80,19 +86,9 @@ class SomeMiddleware(BaseMiddleware):
                     chat_id=user_id,
                     text="Вы не зарегистрированы! Пожалуйста, используйте команду /start для регистрации."
                 )
-            # TODO закончить реакцию на сообщение пользователя, если ни одна из команд не находится в обработке
+                return
 
-            # else:
-            #     # User exists; redirect to /help for unrecognized commands
-            #     await bot.send_message(
-            #         chat_id=user_id,
-            #         text="Команда не распознана. Для списка доступных команд используйте /help."
-            #     )
-            #     return
-
-        # Pass the event to the next middleware or handler
         return await handler(event, data)
-
 
 @dispatcher.message(Command("start"))
 async def start_command(message: types.Message):
