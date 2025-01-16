@@ -7,7 +7,7 @@ from aiogram.filters.command import Command
 from aiogram.types import TelegramObject
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
 
-from database_modification import initialize_db, get_user_by_id, insert_user, update_last_activity  # Import database functions
+from database_modification import initialize_db, get_user_by_id, insert_user, update_last_activity
 
 config = configparser.ConfigParser()
 configPath = "config.ini"
@@ -20,8 +20,6 @@ dispatcher = Dispatcher()
 
 
 class SomeMiddleware(BaseMiddleware):
-    registration_check = -1
-
     async def __call__(
         self,
         handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
@@ -30,24 +28,28 @@ class SomeMiddleware(BaseMiddleware):
     ) -> Any:
         if isinstance(event, types.Message):
             user_id = event.from_user.id
+
+            user_data = await get_user_by_id(user_id)
+
+            if not hasattr(self, "registration_step"):
+                self.registration_step = None
+
             if event.text == '/start':
-                if self.registration_check == -1:
+                if user_data:
+                    # User already registered
+                    first_name, last_name = user_data[2], user_data[3]
+                    await bot.send_message(
+                        chat_id=user_id,
+                        text=f"{first_name} {last_name}, вы уже зарегистрированы!"
+                    )
+                else:
+
+                    self.registration_step = 1
                     await bot.send_message(chat_id=user_id, text="Введите ваше имя:")
-                    self.registration_check = 0
-                elif self.registration_check == 1:
-                    user_data = await get_user_by_id(user_id)
-                    if user_data:
-                        first_name, last_name = user_data[2], user_data[3]
-                        await bot.send_message(
-                            chat_id=user_id,
-                            text=f"{first_name} {last_name}, вы уже зарегистрированы!"
-                        )
                 return
 
-            if self.registration_check == 0:
-                if not hasattr(self, "registration_step"):
-                    self.registration_step = 1
-
+            if self.registration_step:
+                # Handle the registration steps
                 if self.registration_step == 1:
                     self.first_name = event.text
                     await bot.send_message(chat_id=user_id, text="Введите вашу фамилию:")
@@ -62,21 +64,31 @@ class SomeMiddleware(BaseMiddleware):
                         if 1 <= age <= 120:
                             await insert_user(user_id, self.first_name, self.last_name, age)
                             await bot.send_message(chat_id=user_id, text="Регистрация завершена!")
-                            self.registration_check = 1
                             self.registration_step = None
                         else:
                             await bot.send_message(chat_id=user_id, text="Пожалуйста, введите возраст от 1 до 120.")
                     except ValueError:
                         await bot.send_message(chat_id=user_id, text="Введите корректный возраст.")
+                    return
                 return
 
-            if self.registration_check == -1:
+            if not user_data:
+                # User is not registered
                 await bot.send_message(
                     chat_id=user_id,
                     text="Вы не зарегистрированы! Пожалуйста, используйте команду /start для регистрации."
                 )
-                return
+            # TODO закончить реакцию на сообщение пользователя, если ни одна из команд не находится в обработке
 
+            # else:
+            #     # User exists; redirect to /help for unrecognized commands
+            #     await bot.send_message(
+            #         chat_id=user_id,
+            #         text="Команда не распознана. Для списка доступных команд используйте /help."
+            #     )
+            #     return
+
+        # Pass the event to the next middleware or handler
         return await handler(event, data)
 
 
@@ -85,21 +97,19 @@ async def start_command(message: types.Message):
     user_id = message.from_user.id
     user_data = await get_user_by_id(user_id)
 
-    if user_data is None:
-        await message.answer(
-            f'{message.from_user.last_name} {message.from_user.first_name}, вы зарегистрированы!'
-        )
-    else:
+    if user_data:
         await message.answer(
             f'Привет, {message.from_user.last_name} {message.from_user.first_name}! Вы уже зарегистрированы!'
         )
 
-
-@dispatcher.message()
-async def any_message_handler(message: types.Message):
-    user_id = message.from_user.id
-    await update_last_activity(user_id)
-    await message.answer("Сообщение получено, активность обновлена.")
+# TODO переделать реакцию на новое сообщение (в нынешнем виде даже на команду выдаётся только текст, что таймер обновлён)
+# @dispatcher.message()
+# async def any_message_handler(message: types.Message):
+#     user_id = message.from_user.id
+#     user_data = await get_user_by_id(user_id)
+#     if user_data:
+#         await update_last_activity(user_id)
+#         await message.answer("Сообщение получено, активность обновлена.")
 
 
 @dispatcher.message(Command("help"))
@@ -118,29 +128,44 @@ async def help_command(message: types.Message):
 
 @dispatcher.message(Command("profile"))
 async def profile_command(message: types.Message):
-    await message.answer(
-        f"Ваш профиль: {message.from_user.last_name} {message.from_user.first_name}"
-    )
+    user_id = message.from_user.id
+    user_data = await get_user_by_id(user_id)
+    if user_data:
+        await message.answer(
+            f"Ваш профиль: {message.from_user.last_name} {message.from_user.first_name}"
+        )
 
 
 @dispatcher.message(Command("faq"))
 async def faq_command(message: types.Message):
-    await message.answer('FAQ: Здесь будут часто задаваемые вопросы.')
+    user_id = message.from_user.id
+    user_data = await get_user_by_id(user_id)
+    if user_data:
+        await message.answer('FAQ: Здесь будут часто задаваемые вопросы.')
 
 
 @dispatcher.message(Command("test"))
 async def test_command(message: types.Message):
-    await message.answer('Проверка знаний.')
+    user_id = message.from_user.id
+    user_data = await get_user_by_id(user_id)
+    if user_data:
+        await message.answer('Проверка знаний.')
 
 
 @dispatcher.message(Command("career_guidance"))
 async def career_guidance_command(message: types.Message):
-    await message.answer('Тест на профориентацию.')
+    user_id = message.from_user.id
+    user_data = await get_user_by_id(user_id)
+    if user_data:
+        await message.answer('Тест на профориентацию.')
 
 
 @dispatcher.message(Command("exam"))
 async def exam_command(message: types.Message):
-    await message.answer('Подготовка к экзамену.')
+    user_id = message.from_user.id
+    user_data = await get_user_by_id(user_id)
+    if user_data:
+        await message.answer('Подготовка к экзамену.')
 
 
 async def start_bot():
