@@ -8,6 +8,8 @@ from aiogram.types import TelegramObject
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
 
 from database_modification import initialize_db, get_user_by_id, insert_user, update_last_activity
+from token_updater import query_gigachat
+from gigachat_talking import generate_test
 
 config = configparser.ConfigParser()
 configPath = "config.ini"
@@ -144,12 +146,49 @@ async def faq_command(message: types.Message):
         await message.answer('FAQ: Здесь будут часто задаваемые вопросы.')
 
 
+test_sessions = {}
+
 @dispatcher.message(Command("test"))
 async def test_command(message: types.Message):
     user_id = message.from_user.id
     user_data = await get_user_by_id(user_id)
-    if user_data:
-        await message.answer('Проверка знаний.')
+
+    if not user_data:
+        await message.answer("Вы не зарегистрированы. Используйте команду /start для регистрации.")
+        return
+
+    test_sessions[user_id] = {"step": 1}
+    await message.answer("Введите тему, по которой хотите пройти тест:")
+
+
+@dispatcher.message()
+async def test_input_handler(message: types.Message):
+    user_id = message.from_user.id
+    if user_id not in test_sessions:
+        return  # Ignore if not in a test session
+
+    session = test_sessions[user_id]
+
+    if session["step"] == 1:
+        session["topic"] = message.text
+        session["step"] = 2
+        await message.answer("Какой у вас уровень знаний в этой теме? (начальный, средний, продвинутый)")
+    elif session["step"] == 2:
+        session["knowledge_level"] = message.text
+        session["step"] = 3
+
+        # Call GigaChat to generate the test
+        topic = session["topic"]
+        knowledge_level = session["knowledge_level"]
+        try:
+            authorization_key = query_gigachat()  # Fetch the API key from the config
+            test_questions = await generate_test('MjI2YzEzYWItODliMC00MTc0LTk0MWItNDMzZDBjZWVkNDUzOjAzMTIzNTAzLTE5YjAtNDY2Ni04NmNlLThiY2Q5ODg3ODIzMg==', topic, knowledge_level)
+            await message.answer(f"Ваш тест:\n{test_questions}")
+        except Exception as e:
+            await message.answer("Ошибка при создании теста. Попробуйте позже.")
+            logging.error(f"Error generating test: {e}")
+
+        del test_sessions[user_id]  # End the session
 
 
 @dispatcher.message(Command("career_guidance"))
