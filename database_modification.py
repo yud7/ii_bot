@@ -56,3 +56,17 @@ async def update_last_activity(telegram_id: int):
             WHERE telegram_id = ?
         """, (datetime.now().isoformat(), telegram_id))
         await db.commit()
+
+
+async def set_notifications_enabled(telegram_id: int, enabled: bool):
+    """
+    Включает или выключает уведомления пользователю с заданным telegram_id.
+    notification='True' или 'False'.
+    """
+    async with aiosqlite.connect("users.db") as db:
+        await db.execute("""
+            UPDATE users
+            SET notification = ?
+            WHERE telegram_id = ?
+        """, ('True' if enabled else 'False', telegram_id))
+        await db.commit()

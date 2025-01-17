@@ -1,4 +1,3 @@
-# main.py
 import asyncio
 import sys
 import subprocess
