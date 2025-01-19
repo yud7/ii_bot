@@ -8,9 +8,6 @@ from langchain_gigachat import GigaChat as Gigachat
 
 
 def fetch_test(authorization_key: str, user_request: str, knowledge_level: str):
-    """
-    Получить список вопросов и правильных ответов на тему user_request.
-    """
     payload = Chat(
         messages=[
             Messages(
@@ -37,7 +34,10 @@ def fetch_test(authorization_key: str, user_request: str, knowledge_level: str):
                     f"D) [вариант D]\n"
                     f"Правильный ответ:\n\n"
                     f"буква и текст правильного ответа"
+                    f"Не используй математические формулы и специальные символы. Заменяй их на обычные латинские буквы."
+                    f"Описывай все математические выражения как обычный текст. Пример: f(x) = 2x + 2"
                     f"Не добавляй никаких пояснений, заголовков, комментариев или вводных слов. Только список вопросов и вариантов ответа в указанном формате."
+
                 )
             )
         ],
@@ -51,16 +51,51 @@ def fetch_test(authorization_key: str, user_request: str, knowledge_level: str):
         return response.choices[0].message.content
 
 
-def evaluate_answer(authorization_key, question, answer):
-    """
-    Sends the user's answer to GigaChat for evaluation.
-    """
-    prompt = f"Вопрос: {question}\nОтвет: {answer}\nПравильно ли это? Ответь 'да' или 'нет'."
-    payload = Chat(
-        messages=[Messages(role=MessagesRole.SYSTEM, content=prompt)],
-        temperature=1.0,
-        max_tokens=50,
+def fetch_preparation(authorization_key: str, topic: str, knowledge_level: str) -> list[str]:
+    llm = Gigachat(
+        credentials=authorization_key,
+        scope="GIGACHAT_API_PERS",
+        model="GigaChat",
+        verify_ssl_certs=False,
+        streaming=True,
     )
-    with GigaChat(credentials=authorization_key, verify_ssl_certs=False) as giga_chat:
-        response = giga_chat.chat(payload)
-        return {"is_correct": "да" in response.choices[0].message.content.lower()}
+
+    prompt_template = (
+        f"Ты профессор. Составь список вопросов по теме '{topic}'. "
+        f"Они должны быть полезны для подготовки студента с уровнем знаний: {knowledge_level}. "
+        f"Список должен быть строго структурирован:\n"
+        f"1. Вопрос 1\n"
+        f"2. Вопрос 2\n"
+        f"3. Вопрос 3\n"
+        f"и так далее. Не добавляй никаких комментариев."
+    )
+
+    messages = [
+        SystemMessage(content="Ты помощник для подготовки к экзаменам."),
+        HumanMessage(content=prompt_template),
+    ]
+
+    res = llm.invoke(messages)
+    messages.append(res)
+    questions = res.content.split("\n")
+
+    return [q for q in questions]
+
+
+def fetch_gigachat_response(authorization_key: str, question_text: str) -> str:
+    llm = Gigachat(
+        credentials=authorization_key,
+        scope="GIGACHAT_API_PERS",
+        model="GigaChat",
+        verify_ssl_certs=False,
+        streaming=True,
+    )
+    prompt = (
+        f"СТРОГОЕ ОГРАНИЧЕНИЕ: Сообщение должно содержать не более 2000 символов (включая пробелы, табуляции и пустые строки)."
+        f"Объясни следующий вопрос:\n"
+        f"{question_text}\n"
+        f"Дай логическое объяснение и полезную информацию, чтобы пользователь понял его смысл."
+    )
+
+    response = llm.invoke([HumanMessage(content=prompt)])
+    return response.content.strip()

@@ -1,12 +1,8 @@
 import aiosqlite
-import sqlite3
 from datetime import datetime
 
 
 async def initialize_db():
-    """
-    Creates the users table if it doesn't exist.
-    """
     async with aiosqlite.connect("users.db") as db:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -23,9 +19,6 @@ async def initialize_db():
 
 
 async def get_user_by_id(telegram_id: int):
-    """
-    Fetches a user by Telegram ID.
-    """
     async with aiosqlite.connect("users.db") as db:
         async with db.execute("""
             SELECT * FROM users WHERE telegram_id = ?
@@ -34,9 +27,6 @@ async def get_user_by_id(telegram_id: int):
 
 
 async def insert_user(telegram_id: int, first_name: str, last_name: str, age: int):
-    """
-    Inserts a new user into the database.
-    """
     async with aiosqlite.connect("users.db") as db:
         await db.execute("""
             INSERT INTO users (telegram_id, first_name, last_name, age, notification, last_activity)
@@ -46,9 +36,6 @@ async def insert_user(telegram_id: int, first_name: str, last_name: str, age: in
 
 
 async def update_last_activity(telegram_id: int):
-    """
-    Updates the last activity timestamp for a user.
-    """
     async with aiosqlite.connect("users.db") as db:
         await db.execute("""
             UPDATE users
@@ -59,10 +46,6 @@ async def update_last_activity(telegram_id: int):
 
 
 async def set_notifications_enabled(telegram_id: int, enabled: bool):
-    """
-    Включает или выключает уведомления пользователю с заданным telegram_id.
-    notification='True' или 'False'.
-    """
     async with aiosqlite.connect("users.db") as db:
         await db.execute("""
             UPDATE users
