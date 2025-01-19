@@ -6,6 +6,8 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters.command import Command
 from aiogram.types import TelegramObject
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
+from database_modification import insert_test_result
+from database_modification import get_user_statistics
 
 from database_modification import (
     initialize_db,
@@ -152,22 +154,30 @@ async def help_command(message: types.Message):
 async def profile_command(message: types.Message):
     user_id = message.from_user.id
     user_data = await get_user_by_id(user_id)
+
     if user_data:
         first_name = user_data[2]
         last_name = user_data[3]
         age = user_data[4]
         notification_str = user_data[5]
-        if notification_str == 'True':
-            notif_status = "Включены"
+        notification_str = user_data[5]
+        notif_status = "Включены" if notification_str == 'True' else "Выключены"
+
+        user_statistics = await get_user_statistics(user_id)
+        stats_text = "Статистика:\n"
+        if user_statistics:
+            for topic, correct, total, date in user_statistics[:5]:
+                stats_text += f"- {topic} ({date.split('T')[0]}): {correct}/{total} правильных\n"
         else:
-            notif_status = "Выключены"
+            stats_text += "Нет данных о пройденных тестах.\n"
 
         await message.answer(
             f"Ваш профиль:\n"
             f"Имя: {first_name}\n"
             f"Фамилия: {last_name}\n"
             f"Возраст: {age}\n"
-            f"Напоминания: {notif_status}"
+            f"Напоминания: {notif_status}\n\n"
+            f"{stats_text}"
         )
     else:
         await message.answer("Вы не зарегистрированы. Используйте /start для регистрации.")
@@ -239,12 +249,20 @@ async def handle_answer(call: types.CallbackQuery):
     if questions[current_question_num]["options"][user_answer] == correct_answer_text:
         session["correct_answers"] += 1
 
-    if current_question_num < len(questions):
+    if current_question_num < len(questions) - 1:
         session["current_question"] += 1
         await send_question(call.message, session)
     else:
+        # Тест завершён
+        correct_answers = session["correct_answers"]
+        total_questions = len(questions)
+        topic = session["topic"]
+
+        # Сохраняем результаты в базу данных
+        await insert_test_result(user_id, topic, correct_answers, total_questions)
+
         await call.message.answer(
-            f"Тест завершен! Вы ответили правильно на {session['correct_answers']} из {len(questions)} вопросов."
+            f"Тест завершён! Вы ответили правильно на {correct_answers} из {total_questions} вопросов."
         )
         del test_sessions[user_id]
 
