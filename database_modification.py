@@ -1,5 +1,6 @@
 import aiosqlite
 from datetime import datetime
+import sqlite3
 
 
 async def initialize_db():
@@ -11,8 +12,10 @@ async def initialize_db():
                 first_name TEXT,
                 last_name TEXT,
                 age INTEGER,
-                notification TEXT,
+                notification TEXT DEFAULT 'True',
                 last_activity DATETIME
+                last_5min_reminder DATETIME
+                last_24h_reminder DATETIME
             )
         """)
         await db.execute("""
@@ -26,6 +29,16 @@ async def initialize_db():
             )
         """)
         await db.commit()
+        # Проверяем наличие новых колонок и добавляем их при необходимости
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN last_5min_reminder DATETIME")
+        except sqlite3.OperationalError:
+            pass  # Колонка уже существует
+
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN last_24h_reminder DATETIME")
+        except sqlite3.OperationalError:
+            pass  # Колонка уже существует
 
 
 async def get_user_by_id(telegram_id: int):
@@ -41,7 +54,7 @@ async def insert_user(telegram_id: int, first_name: str, last_name: str, age: in
         await db.execute("""
             INSERT INTO users (telegram_id, first_name, last_name, age, notification, last_activity)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (telegram_id, first_name, last_name, age, 'False', datetime.now().isoformat()))
+        """, (telegram_id, first_name, last_name, age, 'True', datetime.now().isoformat()))
         await db.commit()
 
 
@@ -92,4 +105,15 @@ async def get_user_statistics(telegram_id: int):
             WHERE telegram_id = ?
             ORDER BY test_date DESC
         """, (telegram_id,)) as cursor:
+            return await cursor.fetchall()
+
+async def get_all_users():
+    """
+    Fetches all users and their fields from the database.
+    """
+    async with aiosqlite.connect("users.db") as db:
+        async with db.execute("""
+            SELECT telegram_id, last_activity, last_5min_reminder, last_24h_reminder, notification
+            FROM users
+        """) as cursor:
             return await cursor.fetchall()
