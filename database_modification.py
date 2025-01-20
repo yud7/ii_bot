@@ -28,17 +28,25 @@ async def initialize_db():
                 test_date DATETIME
             )
         """)
+        await db.execute("""
+                    CREATE TABLE IF NOT EXISTS user_reviews (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        telegram_id INTEGER,
+                        rating INTEGER,
+                        positive_feedback TEXT,
+                        negative_feedback TEXT,
+                        review_date DATETIME
+                    )
+                """)
         await db.commit()
-        # Проверяем наличие новых колонок и добавляем их при необходимости
         try:
             await db.execute("ALTER TABLE users ADD COLUMN last_5min_reminder DATETIME")
         except sqlite3.OperationalError:
-            pass  # Колонка уже существует
-
+            pass
         try:
             await db.execute("ALTER TABLE users ADD COLUMN last_24h_reminder DATETIME")
         except sqlite3.OperationalError:
-            pass  # Колонка уже существует
+            pass
 
 
 async def get_user_by_id(telegram_id: int):
@@ -107,6 +115,7 @@ async def get_user_statistics(telegram_id: int):
         """, (telegram_id,)) as cursor:
             return await cursor.fetchall()
 
+
 async def get_all_users():
     """
     Fetches all users and their fields from the database.
@@ -117,3 +126,24 @@ async def get_all_users():
             FROM users
         """) as cursor:
             return await cursor.fetchall()
+
+
+async def save_review_to_database(
+    user_id: int,
+    rating: int,
+    positive_feedback: str,
+    negative_feedback: str
+):
+    """
+    Сохраняет отзыв пользователя в таблице user_reviews.
+    """
+    async with aiosqlite.connect("users.db") as db:
+        await db.execute("""
+            INSERT INTO user_reviews (
+                telegram_id, rating, positive_feedback, negative_feedback, review_date
+            )
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            user_id, rating, positive_feedback, negative_feedback, datetime.now().isoformat()
+        ))
+        await db.commit()

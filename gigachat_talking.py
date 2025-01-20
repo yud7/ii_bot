@@ -1,5 +1,3 @@
-from token_updater import query_gigachat
-
 from gigachat import GigaChat
 from gigachat.models import Chat, Messages, MessagesRole
 from langchain_core.messages import HumanMessage, SystemMessage
