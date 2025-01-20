@@ -20,7 +20,9 @@ from database_modification import (
 from gigachat_talking import (
     fetch_test,
     fetch_preparation,
-    fetch_gigachat_response
+    fetch_gigachat_response,
+    generate_career_orientation_questions,
+    analyze_answers
 )
 
 from test_module import (
@@ -41,24 +43,28 @@ dispatcher = Dispatcher()
 
 test_sessions = {}
 preparation_sessions = {}
+test_sessions_1 = {}
+guidance_sessions = {}
+
+
 keyboard_buttons_choice = [
-        [
-            types.InlineKeyboardButton(text='A', callback_data='answer_A'),
-            types.InlineKeyboardButton(text='B', callback_data='answer_B'),
-        ],
-        [
-            types.InlineKeyboardButton(text='C', callback_data='answer_C'),
-            types.InlineKeyboardButton(text='D', callback_data='answer_D'),
-        ]
+    [
+        types.InlineKeyboardButton(text='A', callback_data='answer_A'),
+        types.InlineKeyboardButton(text='B', callback_data='answer_B'),
+    ],
+    [
+        types.InlineKeyboardButton(text='C', callback_data='answer_C'),
+        types.InlineKeyboardButton(text='D', callback_data='answer_D'),
     ]
+]
 
 
 class SomeMiddleware(BaseMiddleware):
     async def __call__(
-        self,
-        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
-        event: TelegramObject,
-        data: Dict[str, Any]
+            self,
+            handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+            event: TelegramObject,
+            data: Dict[str, Any]
     ) -> Any:
         if isinstance(event, types.Message):
             user_id = event.from_user.id
@@ -267,14 +273,14 @@ async def handle_answer(call: types.CallbackQuery):
         del test_sessions[user_id]
 
 
-@dispatcher.message(Command("career_guidance"))
-async def career_guidance_command(message: types.Message):
-    user_id = message.from_user.id
-    user_data = await get_user_by_id(user_id)
-    if user_data:
-        await message.answer('Тест на профориентацию.')
-    else:
-        await message.answer("Вы не зарегистрированы. Используйте /start для регистрации.")
+# @dispatcher.message(Command("career_guidance"))
+# async def career_guidance_command(message: types.Message):
+#     user_id = message.from_user.id
+#     user_data = await get_user_by_id(user_id)
+#     if user_data:
+#         await message.answer('Тест на профориентацию.')
+#     else:
+#         await message.answer("Вы не зарегистрированы. Используйте /start для регистрации.")
 
 
 async def send_question(message: types.Message, session: dict):
@@ -302,6 +308,24 @@ async def preparation_command(message: types.Message):
     preparation_sessions[user_id] = {"step": 1}
     await message.answer("Введите тему, по которой хотите подготовиться:")
 
+@dispatcher.message(Command("career_guidance"))
+async def career_guidance_command(message: types.Message):
+    user_id = message.from_user.id
+
+    # # Проверка, зарегистрирован ли пользователь
+    # user_data = await get_user_by_id(user_id)
+    # if not user_data:
+    #     await message.answer("Вы не зарегистрированы. Используйте команду /start для регистрации.")
+    #     return
+
+    # Инициализация новой сессии теста
+    test_sessions_1[user_id] = {
+        "step": 1,
+        "user_answers": [],
+        "questions": []
+    }
+
+    await message.answer("Добро пожаловать в тест на профориентацию! Вы готовы начать? (Напишите 'Да' для начала)")
 
 @dispatcher.message()
 async def unified_input_handler(message: types.Message):
@@ -375,9 +399,54 @@ async def unified_input_handler(message: types.Message):
                 await send_explanation(message, session)
             except ValueError:
                 await message.answer("Ошибка ввода. Укажите номера вопросов через запятую (например: 1, 3, 5).")
-    else:
-        # Если пользователь не находится ни в одном из режимов, игнорируем сообщение
-        return
+
+    elif user_id in test_sessions_1:
+        session = test_sessions_1[user_id]
+
+        # Обработка шага 1: Начало теста
+        if session["step"] == 1:
+            if message.text.strip().lower() == "да":
+                try:
+                    authorization_key = authorizationKey
+                    session["questions"] = generate_career_orientation_questions(authorization_key)
+                    session["step"] = 2
+                    session["current_question"] = 0
+                    print('fewfwefewfwefwe')
+                    await send_question_1(message, session)
+                except Exception as e:
+                    await message.answer("Ошибка при генерации вопросов. Попробуйте позже.")
+                    logging.error(f"Error generating career test: {e}")
+                    del test_sessions_1[user_id]
+            else:
+                await message.answer("Введите 'Да', чтобы начать тест.")
+
+        # Обработка вопросов теста
+        elif session["step"] == 2:
+            try:
+                # Сохранение ответа пользователя
+                session["user_answers"].append(message.text.strip())
+
+                # Переход к следующему вопросу
+                session["current_question"] += 1
+                if session["current_question"] < len(session["questions"]):
+                    await send_question_1(message, session)
+                else:
+                    # Все вопросы завершены, передача ответов на анализ
+                    await message.answer("Спасибо за прохождение теста! Анализируем ваши ответы...")
+
+                    try:
+                        analysis_result = analyze_answers(session["user_answers"], authorizationKey)
+                        await message.answer(f"Результат анализа: {analysis_result}")
+                    except Exception as e:
+                        await message.answer("Ошибка при анализе ваших ответов. Попробуйте позже.")
+                        logging.error(f"Error analyzing answers: {e}")
+
+                    # Завершение сессии
+                    del test_sessions_1[user_id]
+            except Exception as e:
+                await message.answer("Произошла ошибка. Попробуйте позже.")
+                logging.error(f"Error during test session: {e}")
+
 
 
 async def send_explanation(message: types.Message, session: dict):
@@ -434,7 +503,8 @@ async def send_explanation(message: types.Message, session: dict):
 
     inline_keyboard = types.InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
 
-    await message.answer(f"Вопрос {question_num}:\n{question_text}\n\nПояснение:\n{response}", parse_mode="HTML", reply_markup=inline_keyboard)
+    await message.answer(f"Вопрос {question_num}:\n{question_text}\n\nПояснение:\n{response}", parse_mode="HTML",
+                         reply_markup=inline_keyboard)
 
 
 @dispatcher.callback_query(lambda call: call.data == "next_question")
@@ -456,6 +526,70 @@ async def handle_stop_preparation(call: types.CallbackQuery):
     if user_id in preparation_sessions:
         del preparation_sessions[user_id]
     await call.message.answer("Вы завершили подготовку. Удачи!")
+
+
+
+
+
+# @dispatcher.message()
+# async def unified_input_handler_1(message: types.Message):
+#     user_id = message.from_user.id
+#
+#     if user_id in test_sessions_1:
+#         session = test_sessions_1[user_id]
+#
+#         # Обработка шага 1: Начало теста
+#         if session["step"] == 1:
+#             if message.text.strip().lower() == "да":
+#                 try:
+#                     authorization_key = authorizationKey
+#                     session["questions"] = generate_career_orientation_questions(authorization_key)
+#                     session["step"] = 2
+#                     session["current_question"] = 0
+#
+#                     await send_question(message, session)
+#                 except Exception as e:
+#                     await message.answer("Ошибка при генерации вопросов. Попробуйте позже.")
+#                     logging.error(f"Error generating career test: {e}")
+#                     del test_sessions_1[user_id]
+#             else:
+#                 await message.answer("Введите 'Да', чтобы начать тест.")
+#
+#         # Обработка вопросов теста
+#         elif session["step"] == 2:
+#             try:
+#                 # Сохранение ответа пользователя
+#                 session["user_answers"].append(message.text.strip())
+#
+#                 # Переход к следующему вопросу
+#                 session["current_question"] += 1
+#                 if session["current_question"] < len(session["questions"]):
+#                     await send_question(message, session)
+#                 else:
+#                     # Все вопросы завершены, передача ответов на анализ
+#                     await message.answer("Спасибо за прохождение теста! Анализируем ваши ответы...")
+#
+#                     try:
+#                         analysis_result = analyze_answers(session["user_answers"], authorizationKey)
+#                         await message.answer(f"Результат анализа: {analysis_result}")
+#                     except Exception as e:
+#                         await message.answer("Ошибка при анализе ваших ответов. Попробуйте позже.")
+#                         logging.error(f"Error analyzing answers: {e}")
+#
+#                     # Завершение сессии
+#                     del test_sessions_1[user_id]
+#             except Exception as e:
+#                 await message.answer("Произошла ошибка. Попробуйте позже.")
+#                 logging.error(f"Error during test session: {e}")
+
+
+async def send_question_1(message: types.Message, session):
+    """
+    Отправляет пользователю текущий вопрос из списка вопросов.
+    """
+    question_index = session["current_question"]
+    question = session["questions"][question_index]
+    await message.answer(f"Вопрос {question_index + 1}: {question}")
 
 
 async def start_bot():

@@ -99,3 +99,69 @@ def fetch_gigachat_response(authorization_key: str, question_text: str) -> str:
 
     response = llm.invoke([HumanMessage(content=prompt)])
     return response.content.strip()
+
+
+def generate_career_orientation_questions(authorization_key: str):
+    """
+    Генерирует 20 вопросов для профориентационного теста с использованием LLM.
+
+    :param authorization_key: Ключ авторизации для API языковой модели.
+    :return: Список из 20 вопросов в текстовом формате.
+    """
+    # Формируем payload для LLM
+    payload = Chat(
+        messages=[
+            Messages(
+                role=MessagesRole.SYSTEM,
+                content=(
+                    "Составь тест максимум из 10 вопросов по профориентации. Все вопросы должны быть открытыми и побуждать человека "
+                    "развернуто отвечать. Не добавляй варианты ответов или комментарии. Вопросы должны быть такеие, чтобы по окончании ответов на 1- вопросов, можно было посоветовать человеку подходящую профессию. Пример вопроса: "
+                    "'Какие виды деятельности приносят вам наибольшее удовольствие и почему?'"
+                )
+            )
+        ],
+        temperature=0.7,
+        max_tokens=2000,
+    )
+
+    # Отправляем запрос к LLM
+    with GigaChat(credentials=authorization_key, verify_ssl_certs=False) as giga_chat:
+        response = giga_chat.chat(payload)
+
+    # Получаем текст ответа и разделяем его на вопросы
+    questions = response.choices[0].message.content.strip().split("\n")
+
+    # Возвращаем список вопросов
+    q = [question.strip() for question in questions if question.strip()][1:]
+    print(q)
+    return q
+
+
+def analyze_answers(answers, authorization_key):
+    """
+    Анализирует ответы пользователя с использованием модели LLM.
+
+    :param answers: Список ответов пользователя.
+    :return: Результат анализа в текстовом формате.
+    :authorization_key: ключ для апи.
+    """
+    try:
+
+        payload = Chat(
+            messages=[
+                Messages(
+                    role=MessagesRole.SYSTEM,
+                    content=(
+                                "Ты эксперт по профориентации. Проанализируй ответы пользователя и предложи подходящие карьерные направления. "
+                                "Ответы пользователя:") + "\n" + "\n".join(answers)
+                )
+            ],
+            temperature=0.7,
+            max_tokens=500,
+        )
+
+        with GigaChat(credentials=authorization_key, verify_ssl_certs=False) as giga_chat:
+            response = giga_chat.chat(payload)
+            return response.choices[0].message.content.strip()
+    except Exception as e:
+        return "Не удалось проанализировать ваши ответы. Попробуйте позже."
