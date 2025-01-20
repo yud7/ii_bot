@@ -1,71 +1,123 @@
-# reminder.py
-
 import asyncio
-import logging
 import configparser
-import aiosqlite
+import logging
 from datetime import datetime, timedelta
+
+import aiosqlite
 from aiogram import Bot
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 logging.basicConfig(level=logging.INFO)
 
-config = configparser.ConfigParser()
-config.read("config.ini")
-bot_token = config.get('default', 'botToken')
-bot = Bot(token=bot_token)
 
-async def check_inactive_users():
+async def send_reminders():
     """
-    Пример функции, которую APScheduler вызывает по расписанию.
-    Здесь проверяется, кто 2+ минуты не писал боту.
+    Периодически (раз в 60 секунд) проверяет, когда пользователи были активны,
+    и отправляет им напоминания:
+      - Через 1 минуту после последней активности
+      - Через 24 часа после последней активности
+
+    Отправка происходит только при условии notification = 'True'.
     """
-    now = datetime.now()
-    two_minutes_ago = now - timedelta(minutes=2)
-    cutoff_str = two_minutes_ago.isoformat()
+    config = configparser.ConfigParser()
+    config.read("config.ini")
+    bot_token = config.get("default", "botToken")
 
-    logging.info("Проверяем пользователей на неактивность более 2 минут...")
+    bot = Bot(token=bot_token)
+    print("reminder started")
 
-    try:
-        async with aiosqlite.connect("users.db") as db:
-            query = """
-                SELECT telegram_id, last_activity
-                FROM users
-                WHERE last_activity IS NOT NULL
-                  AND last_activity < ?
-            """
-            async with db.execute(query, (cutoff_str,)) as cursor:
+    while True:
+        try:
+            async with aiosqlite.connect("users.db") as db:
+                # Достаём необходимые поля, включая notification
+                cursor = await db.execute("""
+                    SELECT telegram_id, last_activity,
+                           last_5min_reminder, last_24h_reminder,
+                           notification
+                    FROM users
+                """)
                 rows = await cursor.fetchall()
 
-            for telegram_id, last_act in rows:
-                try:
-                    await bot.send_message(
-                        chat_id=telegram_id,
-                        text="Вы не писали 2 минуты! Напоминаю, что я здесь..."
-                    )
-                    logging.info(f"Отправлено напоминание пользователю {telegram_id}")
-                except Exception as e:
-                    logging.error(f"Ошибка отправки напоминания {telegram_id}: {e}")
+                for row in rows:
+                    telegram_id = row[0]
+                    last_activity_str = row[1]
+                    last_5min_str = row[2]
+                    last_24h_str = row[3]
+                    notification_str = row[4]  # 'True' или 'False'
 
-    except Exception as e:
-        logging.error(f"Ошибка в check_inactive_users: {e}")
+                    # Если пользователь отключил уведомления, пропускаем
+                    if notification_str == 'False':
+                        continue
+
+                    # Если нет данных о последней активности, пропускаем
+                    if not last_activity_str:
+                        continue
+
+                    now = datetime.now()
+                    last_activity = datetime.fromisoformat(last_activity_str)
+
+                    # --- Напоминание через 1 минуту ---
+                    if (now - last_activity) >= timedelta(minutes=1):
+                        send_1min = False
+
+                        if not last_5min_str:
+                            # Никогда не отправляли 1-минутное уведомление
+                            send_1min = True
+                        else:
+                            last_5min_reminder = datetime.fromisoformat(last_5min_str)
+                            # Если последнее 1-минутное уведомление было до новой активности
+                            if last_5min_reminder < last_activity:
+                                send_1min = True
+
+                        if send_1min:
+                            try:
+                                await bot.send_message(
+                                    chat_id=telegram_id,
+                                    text="Прошла 1 минута с вашей последней активности. Напоминаем о тесте!"
+                                )
+                                # Обновляем метку, чтобы не слать повторно
+                                await db.execute("""
+                                    UPDATE users
+                                    SET last_5min_reminder = ?
+                                    WHERE telegram_id = ?
+                                """, (now.isoformat(), telegram_id))
+                                await db.commit()
+                            except Exception as e:
+                                logging.error(f"[1 min] Ошибка отправки уведомления пользователю {telegram_id}: {e}")
+
+                    # --- Напоминание через 24 часа ---
+                    if (now - last_activity) >= timedelta(hours=24):
+                        send_24h = False
+
+                        if not last_24h_str:
+                            send_24h = True
+                        else:
+                            last_24h_reminder = datetime.fromisoformat(last_24h_str)
+                            if last_24h_reminder < last_activity:
+                                send_24h = True
+
+                        if send_24h:
+                            try:
+                                await bot.send_message(
+                                    chat_id=telegram_id,
+                                    text="Прошли сутки с вашей последней активности. Напоминаем о тесте!"
+                                )
+                                await db.execute("""
+                                    UPDATE users
+                                    SET last_24h_reminder = ?
+                                    WHERE telegram_id = ?
+                                """, (now.isoformat(), telegram_id))
+                                await db.commit()
+                            except Exception as e:
+                                logging.error(f"[24h] Ошибка отправки уведомления пользователю {telegram_id}: {e}")
+
+        except Exception as e:
+            logging.error(f"Ошибка в цикле отправки напоминаний: {e}")
+
+        # Ждём 60 секунд до следующей проверки
+        await asyncio.sleep(60)
 
 async def main():
-    """
-    Здесь создаём планировщик и запускаем его внутри запущенного event loop.
-    """
-    scheduler = AsyncIOScheduler()
-    # Каждую минуту запускаем функцию проверки
-    scheduler.add_job(check_inactive_users, "interval", minutes=1)
-    
-    scheduler.start()
-    logging.info("Scheduler запущен. Ожидаем события...")
-
-    # Чтобы процесс не завершился, делаем бесконечную "задержку"
-    # (либо используйте другой способ «заставить» event loop работать)
-    while True:
-        await asyncio.sleep(3600)
+    await send_reminders()
 
 if __name__ == "__main__":
-    # Запускаем всё в асинхронном режиме
     asyncio.run(main())
