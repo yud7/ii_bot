@@ -197,8 +197,51 @@ async def profile_command(message: types.Message):
 async def faq_command(message: types.Message):
     user_id = message.from_user.id
     user_data = await get_user_by_id(user_id)
+
     if user_data:
-        await message.answer('FAQ: Здесь будут часто задаваемые вопросы.')
+        faq_text = """
+        <b>FAQ (Часто Задаваемые Вопросы)</b>
+
+        1. <b>Как зарегистрироваться в боте?</b>
+           Используйте команду <code>/start</code>. Если вы не зарегистрированы, бот начнет процесс регистрации.
+
+        2. <b>Какие команды поддерживает бот?</b>
+           - <code>/start</code> – Начало работы и регистрация.
+           - <code>/help</code> – Список доступных команд.
+           - <code>/profile</code> – Просмотр профиля.
+           - <code>/test</code> – Прохождение теста.
+           - <code>/career_guidance</code> – Тест на профориентацию.
+           - <code>/preparation</code> – Подготовка к экзаменам.
+           - <code>/faq</code> – Часто задаваемые вопросы.
+           - <code>/disable_reminders</code> – Отключение напоминаний.
+           - <code>/enable_reminders</code> – Включение напоминаний.
+
+        3. <b>Как пройти тест?</b>
+           Введите <code>/test</code>, выберите тему и уровень знаний, а затем отвечайте на вопросы.
+
+        4. <b>Как работает тест на профориентацию?</b>
+           Введите <code>/career_guidance</code> и ответьте на вопросы. Бот предложит подходящие профессии.
+
+        5. <b>Как подготовиться к экзамену?</b>
+           Введите <code>/preparation</code>, выберите тему и вопросы для объяснений.
+
+        6. <b>Как посмотреть мою статистику?</b>
+           Используйте <code>/profile</code>, чтобы увидеть свои данные и результаты тестов.
+
+        7. <b>Как включить/отключить напоминания?</b>
+           - Включение: <code>/enable_reminders</code>
+           - Отключение: <code>/disable_reminders</code>
+
+        8. <b>Как оставить отзыв?</b>
+           После теста бот предложит поставить оценку и написать комментарий.
+
+        9. <b>Что делать, если бот не отвечает?</b>
+           Проверьте интернет, перезапустите бот командой <code>/start</code>. Если проблема сохраняется, обратитесь в поддержку.
+
+        10. <b>Где хранятся мои данные?</b>
+            Данные хранятся в защищенной базе и не передаются третьим лицам.
+        """
+        await message.answer(faq_text, parse_mode="HTML")
     else:
         await message.answer("Вы не зарегистрированы. Используйте /start для регистрации.")
 
@@ -254,7 +297,6 @@ async def handle_answer(call: types.CallbackQuery):
 
     user_answer = call.data.split("_")[1]
     session["user_answers"].append(user_answer)
-
     correct_answer_text = questions[current_question_num]["correct_answer"]
     if questions[current_question_num]["options"][user_answer] == correct_answer_text:
         session["correct_answers"] += 1
